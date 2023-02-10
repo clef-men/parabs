@@ -1,0 +1,4 @@
+(library
+  (name parabstr__base)
+  (public_name parabstr.base)
+)

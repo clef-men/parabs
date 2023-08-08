@@ -2,7 +2,7 @@
 opam-version: "2.0"
 synopsis: "Parallel abstractions for OCaml5"
 maintainer: ["clement.allain@inria.fr"]
-authors: ["Clément Allain" "François Pottier"]
+authors: ["Clément Allain"]
 depends: [
   "dune" {>= "3.0"}
   "ocaml" {>= "5.0.0"}

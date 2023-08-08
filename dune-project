@@ -3,7 +3,7 @@
 
 (generate_opam_files true)
 
-(authors "Clément Allain" "François Pottier")
+(authors "Clément Allain")
 (maintainers "clement.allain@inria.fr")
 
 (package

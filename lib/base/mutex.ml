@@ -1,5 +1,5 @@
 include Stdlib.Mutex
 
-let [@inline] locked t f =
+let [@inline] protect t fn =
   lock t ;
-  Fun.protect ~finally:(fun () -> unlock t) f
+  Fun.protect ~finally:(fun () -> unlock t) fn

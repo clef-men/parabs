@@ -1,32 +1,32 @@
-type 'a node = {
-  mutable prev : 'a node ;
-  mutable next : 'a node ;
-  v : 'a ;
-}
-type 'a t = {
-  front_sentinel : 'a node ;
-  back_sentinel : 'a node ;
-}
+type 'a node =
+  { mutable prev: 'a node;
+    mutable next: 'a node;
+    data: 'a;
+  }
+type 'a t =
+  { front_sentinel: 'a node;
+    back_sentinel: 'a node;
+  }
 
-let make () =
+let create () =
   let rec front_sentinel =
-    { prev = front_sentinel ;
-      next = back_sentinel ;
-      v = Obj.magic () ;
+    { prev= front_sentinel;
+      next= back_sentinel;
+      data= Obj.magic ();
     }
   and back_sentinel =
-    { prev = front_sentinel ;
-      next = back_sentinel ;
-      v = Obj.magic () ;
+    { prev= front_sentinel;
+      next= back_sentinel;
+      data= Obj.magic ();
     }
   in
-  {front_sentinel ; back_sentinel}
+  { front_sentinel; back_sentinel }
 
 let [@inline] is_empty t =
   t.front_sentinel.next == t.back_sentinel
 
 let insert node1 node2 v =
-  let node = {prev = node1 ; next = node2 ; v} in
+  let node = { prev= node1; next= node2; data= v } in
   node1.next <- node ;
   node2.prev <- node
 
@@ -37,7 +37,8 @@ let remove node =
   next.prev <- prev
 
 let push_front t v =
-  insert t.front_sentinel t.front_sentinel.next v
+  let front_sentinel = t.front_sentinel in
+  insert front_sentinel front_sentinel.next v
 
 let pop_front t =
   let front = t.front_sentinel.next in
@@ -45,7 +46,7 @@ let pop_front t =
     None
   ) else (
     remove front ;
-    Some front.v
+    Some front.data
   )
 
 let push_back t v =
@@ -57,5 +58,5 @@ let pop_back t =
     None
   ) else (
     remove back ;
-    Some back.v
+    Some back.data
   )

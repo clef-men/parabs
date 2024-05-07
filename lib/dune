@@ -1,6 +1,6 @@
 (library
   (name parabstr)
   (public_name parabstr)
-  (libraries parabstr__base lockfree)
-  (flags (:standard -open Parabstr__base))
+  (libraries saturn parabstr.utils)
+  (flags (:standard -open Parabstr__utils))
 )

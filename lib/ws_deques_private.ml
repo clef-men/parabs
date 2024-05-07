@@ -1,128 +1,107 @@
-open Ws_deques
+(* FIXME: Can we relax some atomics? *)
 
-type status =
-  | Idle
-  | Busy
 type request =
   | Blocked
-  | No_request
-  | Request of id
+  | NoRequest
+  | Request of int
+
 type 'a response =
-  | No_response
-  | No_task
-  | Task of 'a
+  | NoResponse
+  | No
+  | Yes of 'a
 
-type 'a dls = {
-  deque : 'a Deque.t ;
-}
-
-type 'a t = {
-  status : status Array.t ;
-  requests : request Atomic.t Array.t ;
-  responses : 'a response Atomic.t Array.t ;
-  kill : Bool.t Atomic.t ;
-}
-
-let dls_make _id =
-  {deque = Deque.make ()}
-let make sz =
-  { status = Array.make sz Idle ;
-    requests = Array.init sz (fun _ -> Atomic.make No_request) ;
-    responses = Array.init sz (fun _ -> Atomic.make No_response) ;
-    kill = Atomic.make false ;
+type 'a t =
+  { deques: 'a Deque.t array;
+    flags: bool array;
+    requests: request Atomic.t array;
+    responses: 'a response Atomic.t array;
   }
 
-let respond t id dls =
-  let request = Array.unsafe_get t.requests id in
-  begin match Atomic.get request with
-  | Blocked ->
-      ()
-  | No_request ->
-      if Deque.is_empty dls.deque then (
-        Array.unsafe_set t.status id Idle
-      )
-  | Request thief_id ->
-      Atomic.set (Array.unsafe_get t.responses thief_id)
-        begin match Deque.pop_front dls.deque with
-        | None ->
-            Array.unsafe_set t.status id Idle ;
-            No_task
-        | Some task ->
-            if Deque.is_empty dls.deque then (
-              Array.unsafe_set t.status id Idle
-            ) ;
-            Task task
-        end ;
-      Atomic.set request No_request
-  end
+let create sz =
+  { deques= Array.init sz (fun _ -> Deque.create ());
+    flags= Array.make sz false;
+    requests= Array.init sz (fun _ -> Atomic.make Blocked);
+    responses= Array.init sz (fun _ -> Atomic.make NoResponse);
+  }
 
-let block t id _dls =
-  let request = Array.unsafe_get t.requests id in
-  begin match Atomic.get request with
+let size t =
+  Array.length t.deques
+
+let block t request j =
+  Atomic.set t.responses.(j) No ;
+  Atomic.set request Blocked
+let block t i =
+  t.flags.(i) <- false ;
+  let request = t.requests.(i) in
+  match Atomic.get request with
   | Blocked ->
       ()
-  | No_request ->
-      if not @@ Atomic.compare_and_set request No_request Blocked then (
+  | NoRequest ->
+      if not @@ Atomic.compare_and_set request NoRequest Blocked then
         begin match Atomic.get request with
-        | Blocked
-        | No_request ->
-            failwith @@ __FUNCTION__ ^ ": illegal state"
-        | Request thief_id ->
-            Atomic.set (Array.unsafe_get t.responses thief_id) No_task ;
-            Atomic.set request Blocked
+        | Request j ->
+            block t request j
+        | _ ->
+            assert false
         end
-      )
-  | Request thief_id ->
-      Atomic.set (Array.unsafe_get t.responses thief_id) No_task ;
-      Atomic.set request Blocked
-  end
+  | Request j ->
+      block t request j
 
-let push t id dls task =
-  Deque.push_back dls.deque task ;
-  if Array.unsafe_get t.status id <> Busy then (
-    Array.unsafe_set t.status id Busy
-  )
+let unblock t i =
+  Atomic.set t.requests.(i) NoRequest ;
+  t.flags.(i) <- true
 
-let pop t id dls =
-  begin match Deque.pop_back dls.deque with
-  | None ->
-      Error Fail
-  | Some task ->
-      respond t id dls ;
-      Ok task
-  end
-
-let steal_pre t id dls =
-  block t id dls
-let steal t id _dls victim_id =
-  let response = Array.unsafe_get t.responses id in
-  Atomic.set response No_response ;
-  if Atomic.get t.kill then (
-    Error Kill
-  ) else (
-    if Array.unsafe_get t.status victim_id = Busy
-    && Atomic.compare_and_set (Array.unsafe_get t.requests victim_id) No_request (Request id)
-    then (
-      let rec loop () =
-        begin match Atomic.get response with
-        | No_response ->
-            Domain.cpu_relax () ;
-            loop ()
-        | No_task ->
-            Error Fail
-        | Task task ->
-            Ok task
+let respond t i =
+  let deque = t.deques.(i) in
+  let request = t.requests.(i) in
+  match Atomic.get request with
+  | Request j ->
+      let v =
+        begin match Deque.pop_front deque with
+        | Some v ->
+            v
+        | _ ->
+            assert false
         end
       in
-      loop ()
-    ) else (
-      Error Fail
-    )
-  )
-let steal_post t id _dls =
-  if not @@ Atomic.get t.kill then (
-    Atomic.set (Array.unsafe_get t.requests id) No_request
-  )
+      Atomic.set t.responses.(j) (Yes v) ;
+      Atomic.set request (if Deque.is_empty deque then Blocked else NoRequest)
+  | _ ->
+      ()
 
-let kill t _id _dls =
-  Atomic.set t.kill true
+let push t i v =
+  Deque.push_back t.deques.(i) v ;
+  if t.flags.(i) then
+    respond t i
+  else
+    unblock t i
+
+let pop t i =
+  let deque = t.deques.(i) in
+  let res = Deque.pop_back deque in
+  begin match res with
+  | None ->
+      ()
+  | Some _ ->
+      if Deque.is_empty deque then
+        block t i
+      else
+        respond t i
+  end ;
+  res
+
+let rec wait_response response =
+  match Atomic.get response with
+  | NoResponse ->
+      Domain.cpu_relax () ;
+      wait_response response
+  | No ->
+      None
+  | Yes v ->
+      Atomic.set response NoResponse ;
+      Some v
+let steal_to t i j =
+  if t.flags.(j) && Atomic.compare_and_set t.requests.(j) NoRequest (Request i) then
+    wait_response t.responses.(i)
+  else
+    None

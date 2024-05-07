@@ -6,7 +6,7 @@ authors: ["Clément Allain"]
 depends: [
   "dune" {>= "3.0"}
   "ocaml" {>= "5.0.0"}
-  "lockfree"
+  "saturn"
   "odoc" {with-doc}
 ]
 build: [

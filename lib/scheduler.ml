@@ -1,27 +1,30 @@
 module type S = sig
-  type t
-
-  type context
-
   type 'a task =
-    context -> 'a
+    unit -> 'a
+
+  type t
+  type scheduler =
+    t
 
   type 'a future
 
   val create :
     int -> t
 
-  val run :
-    t -> 'a task -> 'a
-
   val silent_async :
-    context -> unit task -> unit
+    t -> unit task -> unit
 
   val async :
-    context -> 'a task -> 'a future
+    t -> 'a task -> 'a future
 
   val await :
-    context -> 'a future -> 'a
+    'a future -> 'a
+
+  val yield :
+    unit -> unit
+
+  val run :
+    t -> 'a task -> 'a
 
   val kill :
     t -> unit
@@ -36,7 +39,7 @@ module type S = sig
       t -> t -> unit
 
     val release :
-      context -> t -> unit
+      scheduler -> t -> unit
   end
 end
 
@@ -45,71 +48,147 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     Ws_hub.Make (Ws_hub_base)
 
   type 'a task =
-    context -> 'a
-  and t =
-    { hub: unit task Ws_hub.t;
+    unit -> 'a
+
+  type t =
+    { dls: int Domain.DLS.key;
+      hub: unit task Ws_hub.t;
       domains: unit Domain.t array;
     }
-  and context =
-    { context_hub: unit task Ws_hub.t;
-      context_id: int;
-    }
+  type scheduler =
+    t
 
+  type 'a state =
+    | Returned of 'a
+    | Raised of Printexc.t * Printexc.raw_backtrace
+    | Pending of ('a, unit) Effect.Deep.continuation list
   type 'a future =
-    'a Spmc_future.t
+    'a state Atomic.t
+
+  type _ Effect.t +=
+    | Yield : unit Effect.t
+    | Await : 'a future -> 'a Effect.t
 
   let max_round_noyield =
     1024
   let max_round_yield =
     32
 
-  let execute ctx task =
-    task ctx
-
-  let rec worker ctx =
-    match Ws_hub.pop_steal ctx.context_hub ctx.context_id max_round_noyield max_round_yield with
+  let rec worker hub id =
+    match Ws_hub.pop_steal hub id max_round_noyield max_round_yield with
     | None ->
         ()
     | Some task ->
-        execute ctx task ;
-        worker ctx
+        task () ;
+        worker hub id
 
   let create sz =
     if sz < 0 then
       invalid_arg @@ __FUNCTION__ ^ ": size must be positive" ;
+    let dls = Domain.DLS.new_key @@ fun () -> -1 in
+    Domain.DLS.set dls 0 ;
     let hub = Ws_hub.create (1 + sz) in
-    let doms =
+    let domains =
       Array.init sz @@ fun i ->
         Domain.spawn @@ fun _ ->
-          worker { context_hub= hub; context_id= 1 + i }
+          let id = 1 + i in
+          Domain.DLS.set dls id ;
+          worker hub id
     in
-    { hub; domains= doms }
+    { dls; hub; domains }
 
-  let run t task =
-    execute { context_hub= t.hub; context_id= 0 } task
+  let[@inline] push_raw t task =
+    Ws_hub.push t.hub (Domain.DLS.get t.dls) task
 
-  let silent_async ctx task =
-    Ws_hub.push ctx.context_hub ctx.context_id task
+  let handle_yield t k =
+    push_raw t @@ Effect.Deep.continue k
+  let rec handle_await fut k =
+    match Atomic.get fut with
+    | Returned v ->
+        Effect.Deep.continue k v
+    | Raised (exn, bt) ->
+        Effect.Deep.discontinue_with_backtrace k exn bt
+    | Pending ks as state ->
+        if not @@ Atomic.compare_and_set fut state @@ Pending (k :: ks) then (
+          Domain.cpu_relax () ;
+          handle_await fut k
+        )
+  let handle t task () =
+    Effect.Deep.try_with task () { effc =
+      fun (type a) (eff : a Effect.t) : ((a, _) Effect.Deep.continuation -> _) Option.t ->
+        match eff with
+        | Yield ->
+            Some (handle_yield t)
+        | Await fut ->
+            Some (handle_await fut)
+        | _ ->
+            None
+    }
+  let[@inline] push t task =
+    task
+    |> handle t
+    |> push_raw t
 
-  let async ctx task =
-    let fut = Spmc_future.create () in
-    silent_async ctx (fun ctx ->
-      Spmc_future.set fut (task ctx)
-    ) ;
+  let execute task () =
+    match task () with
+    | v ->
+        v
+    | exception _ ->
+        ()
+  let silent_async t task =
+    push t (execute task)
+
+  let execute t fut task () =
+    let res, task =
+      match task () with
+      | v ->
+          Returned v,
+          fun k () -> Effect.Deep.continue k v
+      | exception exn ->
+          let bt = Printexc.get_raw_backtrace () in
+          Raised (exn, bt),
+          fun k () -> Effect.Deep.discontinue_with_backtrace k exn bt
+    in
+    match Atomic.exchange fut res with
+    | Pending ks ->
+        List.iter (fun k -> push_raw t (task k)) ks
+    |  _ ->
+        failwith @@ __FUNCTION__ ^ ": impossible: cannot set future result more than once"
+  let async t task =
+    let fut = Atomic.make @@ Pending [] in
+    push t (execute t fut task) ;
     fut
 
-  let rec await ctx fut =
-    match Spmc_future.try_get fut with
-    | Some res ->
-        res
-    | None ->
-        begin match Ws_hub.pop_try_steal ctx.context_hub ctx.context_id max_round_noyield max_round_yield with
+  let await fut =
+    match Atomic.get fut with
+    | Returned v ->
+        v
+    | Raised (exn, bt) ->
+        Printexc.raise_with_backtrace exn bt
+    | Pending _ ->
+        Effect.perform @@ Await fut
+
+  let yield () =
+    Effect.perform Yield
+
+  let rec run t fut =
+    match Atomic.get fut with
+    | Returned v ->
+        v
+    | Raised (e, bt) ->
+        Printexc.raise_with_backtrace e bt
+    | Pending _ ->
+        begin match Ws_hub.pop_try_steal t.hub 0 max_round_noyield max_round_yield with
         | None ->
-            ()
+            Domain.cpu_relax ()
         | Some task ->
-            execute ctx task
+            task ()
         end ;
-        await ctx fut
+        run t fut
+  let run t task =
+    if Ws_hub.killed t.hub then
+      invalid_arg @@ __FUNCTION__ ^ ": scheduler already killed" ;
+    run t @@ async t task
 
   let kill t =
     Ws_hub.kill t.hub ;
@@ -133,15 +212,11 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
       if Mpmc_stack.push t1.succs t2 then
         Atomic.decr t2.preds
 
-    let propagate ctx t run =
+    let rec release sched t =
       if Atomic.fetch_and_add t.preds (-1) = 1 then
-        silent_async ctx (fun ctx -> run ctx t)
-    let rec run ctx t =
-      t.task ctx ;
-      Clist.iter (Mpmc_stack.close t.succs) (fun t' ->
-        propagate ctx t' run
-      )
-    let release ctx t =
-      propagate ctx t run
+        silent_async sched @@ fun () -> run sched t
+    and run sched t =
+      t.task () ;
+      Clist.iter (Mpmc_stack.close t.succs) (release sched)
   end
 end

@@ -1,27 +1,30 @@
 module type S = sig
-  type t
-
-  type context
-
   type 'a task =
-    context -> 'a
+    unit -> 'a
+
+  type t
+  type scheduler =
+    t
 
   type 'a future
 
   val create :
     int -> t
 
-  val run :
-    t -> 'a task -> 'a
-
   val silent_async :
-    context -> unit task -> unit
+    t -> unit task -> unit
 
   val async :
-    context -> 'a task -> 'a future
+    t -> 'a task -> 'a future
 
   val await :
-    context -> 'a future -> 'a
+    'a future -> 'a
+
+  val yield :
+    unit -> unit
+
+  val run :
+    t -> 'a task -> 'a
 
   val kill :
     t -> unit
@@ -36,7 +39,7 @@ module type S = sig
       t -> t -> unit
 
     val release :
-      context -> t -> unit
+      scheduler -> t -> unit
   end
 end
 

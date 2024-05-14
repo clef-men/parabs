@@ -222,8 +222,8 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
       if preds <= 0 then
         failwith @@ __FUNCTION__ ^ ": illegal state probably due to multiple vertex releases" ;
       if preds = 1 then
-        push_raw sched @@ fun () -> run sched t
-    and run sched t =
+        push_raw sched @@ run sched t
+    and run sched t () =
       Atomic.incr t.preds ;
       t.task () ;
       Clist.iter (Mpmc_stack.close t.succs) (propagate sched)

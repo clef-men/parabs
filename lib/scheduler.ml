@@ -218,7 +218,10 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
       )
 
     let rec propagate sched t =
-      if Atomic.fetch_and_add t.preds (-1) = 1 then
+      let preds = Atomic.fetch_and_add t.preds (-1) in
+      if preds <= 0 then
+        failwith @@ __FUNCTION__ ^ ": illegal state probably due to multiple vertex releases" ;
+      if preds = 1 then
         push_raw sched @@ fun () -> run sched t
     and run sched t =
       Atomic.incr t.preds ;

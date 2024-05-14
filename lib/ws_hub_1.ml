@@ -44,7 +44,7 @@ module Make (Ws_deques_base : Ws_deques.BASE) : Ws_hub.BASE = struct
     Ws_deques.pop t.deques i
 
   let pop_foreign t =
-    Mpmc_queue.pop_opt t.foreign
+    Mpmc_queue.pop t.foreign
 
   let try_steal_once t i =
     let round = t.rounds.(i) in

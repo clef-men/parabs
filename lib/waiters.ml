@@ -11,7 +11,7 @@ let create =
   Mpmc_queue.create
 
 let rec notify' t =
-  match Mpmc_queue.pop_opt t with
+  match Mpmc_queue.pop t with
   | None ->
       false
   | Some waiter ->

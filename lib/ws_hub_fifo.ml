@@ -31,7 +31,7 @@ let push t _i v =
   push_foreign t v
 
 let pop t =
-  Mpmc_queue.pop_opt t.queue
+  Mpmc_queue.pop t.queue
 
 let try_steal _t _i _max_round_noyield _max_round_yield =
   None

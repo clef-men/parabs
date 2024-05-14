@@ -14,7 +14,9 @@ let push t i v =
   Ws_deque.push t.(i) v
 
 let pop t i =
-  Ws_deque.pop_opt t.(i)
+  let deque = t.(i) in
+  try Some (Ws_deque.pop deque) with Exit -> None
 
 let steal_to t _i j =
-  Ws_deque.steal_opt t.(j)
+  let deque = t.(j) in
+  try Some (Ws_deque.steal deque) with Exit -> None

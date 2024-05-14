@@ -11,6 +11,6 @@
   (synopsis "Parallel abstractions for OCaml5")
   (depends
     (ocaml (>= 5.0.0))
-    saturn
+    (saturn (= 0.4.0))
   )
 )

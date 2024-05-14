@@ -31,5 +31,8 @@ let rec pop t =
         pop t
       )
 
+let is_closed t =
+  Atomic.get t == Clist.Closed
+
 let close t =
   Atomic.exchange t Clist.Closed

@@ -208,9 +208,11 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
       }
 
     let precede t1 t2 =
-      Atomic.incr t2.preds ;
-      if Mpmc_stack.push t1.succs t2 then
-        Atomic.decr t2.preds
+      if not @@ Mpmc_stack.is_closed t1.succs then (
+        Atomic.incr t2.preds ;
+        if Mpmc_stack.push t1.succs t2 then
+          Atomic.decr t2.preds
+      )
 
     let rec release sched t =
       if Atomic.fetch_and_add t.preds (-1) = 1 then

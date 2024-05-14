@@ -9,5 +9,8 @@ val push :
 val pop :
   'a t -> 'a Option2.t
 
+val is_closed :
+  'a t -> bool
+
 val close :
   'a t -> 'a Clist.t

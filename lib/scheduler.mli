@@ -33,13 +33,13 @@ module type S = sig
     type t
 
     val create :
-      (t -> unit) -> t
+      unit -> t
 
     val precede :
       t -> t -> unit
 
     val release :
-      scheduler -> t -> unit
+      scheduler -> t -> unit task -> unit
 
     val yield :
       t -> unit

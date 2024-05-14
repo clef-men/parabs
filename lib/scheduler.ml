@@ -36,13 +36,13 @@ module type S = sig
     type t
 
     val create :
-      (t -> unit) -> t
+      unit -> t
 
     val precede :
       t -> t -> unit
 
     val release :
-      scheduler -> t -> unit
+      scheduler -> t -> unit task -> unit
 
     val yield :
       t -> unit
@@ -146,23 +146,16 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
 
   module Vertex = struct
     type t =
-      { task: unit task;
-        mutable job: Job.t;
+      { mutable job: Job.t;
         preds: int Atomic.t;
         succs: t Mpmc_stack.t;
       }
 
-    let create task_ =
-      let rec task () =
-        ignore_exceptions task_ t
-      and t =
-        { task;
-          job= Job.noop;
-          preds= Atomic.make 1;
-          succs= Mpmc_stack.create ();
-        }
-      in
-      t
+    let create () =
+      { job= Job.noop;
+        preds= Atomic.make 1;
+        succs= Mpmc_stack.create ();
+      }
 
     let precede t1 t2 =
       if not @@ Mpmc_stack.is_closed t1.succs then (
@@ -180,11 +173,11 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
         Pool.submit_job sched t.job
       )
 
-    let run sched t () =
-      t.task () ;
+    let run sched t task () =
+      ignore_exceptions task () ;
       Clist.iter (Mpmc_stack.close t.succs) (propagate sched)
-    let release sched t =
-      t.job <- Job.make sched (run sched t) ;
+    let release sched t task =
+      t.job <- Job.make sched (run sched t task) ;
       propagate sched t
 
     let yield t =

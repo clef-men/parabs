@@ -50,111 +50,66 @@ module type S = sig
 end
 
 module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
-  module Ws_hub =
-    Ws_hub.Make (Ws_hub_base)
+  module Pool =
+    Pool.Make (Ws_hub_base)
+  module Job =
+    Pool.Job
 
   type 'a task =
     unit -> 'a
 
   type t =
-    { dls: int Domain.DLS.key;
-      hub: unit task Ws_hub.t;
-      domains: unit Domain.t array;
-    }
+    Pool.t
   type scheduler =
     t
 
   type 'a state =
     | Returned of 'a
     | Raised of Printexc.t * Printexc.raw_backtrace
-    | Pending of ('a, unit) Effect.Deep.continuation list
+    | Pending of 'a Job.suspended list
   type 'a future =
     'a state Atomic.t
 
-  type _ Effect.t +=
-    | Yield : (t -> (unit, unit) Effect.Deep.continuation -> unit) -> unit Effect.t
-    | Await : 'a future -> 'a Effect.t
-
-  let max_round_noyield =
-    1024
-  let max_round_yield =
-    32
-
-  let rec worker hub id =
-    match Ws_hub.pop_steal hub id max_round_noyield max_round_yield with
-    | None ->
-        ()
-    | Some task ->
-        task () ;
-        worker hub id
-
-  let create sz =
-    if sz < 0 then
-      invalid_arg @@ __FUNCTION__ ^ ": size must be positive" ;
-    let dls = Domain.DLS.new_key @@ fun () -> -1 in
-    Domain.DLS.set dls 0 ;
-    let hub = Ws_hub.create (1 + sz) in
-    let domains =
-      Array.init sz @@ fun i ->
-        Domain.spawn @@ fun _ ->
-          let id = 1 + i in
-          Domain.DLS.set dls id ;
-          worker hub id
-    in
-    { dls; hub; domains }
-
-  let[@inline] push_raw t task =
-    Ws_hub.push t.hub (Domain.DLS.get t.dls) task
-
-  let rec handle_await fut k =
-    match Atomic.get fut with
-    | Returned v ->
-        Effect.Deep.continue k v
-    | Raised (exn, bt) ->
-        Effect.Deep.discontinue_with_backtrace k exn bt
-    | Pending ks as state ->
-        if not @@ Atomic.compare_and_set fut state @@ Pending (k :: ks) then (
-          Domain.cpu_relax () ;
-          handle_await fut k
-        )
-  let handle t task () =
-    Effect.Deep.try_with task () { effc =
-      fun (type a) (eff : a Effect.t) : ((a, _) Effect.Deep.continuation -> _) Option.t ->
-        match eff with
-        | Yield handle ->
-            Some (handle t)
-        | Await fut ->
-            Some (handle_await fut)
-        | _ ->
-            None
-    }
-  let[@inline] push t task =
-    push_raw t (handle t task)
+  let create =
+    Pool.create
 
   let silent_async t task =
-    push t (ignore_exceptions task)
+    Pool.submit_task t (ignore_exceptions task)
 
   let async t fut task () =
-    let res, task =
+    let res, job =
       match task () with
       | v ->
           Returned v,
-          fun k () -> Effect.Deep.continue k v
+          fun suspended -> Job.continue suspended v
       | exception exn ->
           let bt = Printexc.get_raw_backtrace () in
           Raised (exn, bt),
-          fun k () -> Effect.Deep.discontinue_with_backtrace k exn bt
+          fun suspended -> Job.discontinue suspended exn bt
     in
     match Atomic.exchange fut res with
-    | Pending ks ->
-        List.iter (fun k -> push_raw t (task k)) ks
+    | Pending suspendeds ->
+        List.iter (fun suspended -> Pool.submit_job t (job suspended)) suspendeds
     |  _ ->
         failwith @@ __FUNCTION__ ^ ": impossible: cannot set future result more than once"
   let async t task =
-    let fut = Atomic.make @@ Pending [] in
-    push t (async t fut task) ;
+    let fut = Atomic.make (Pending []) in
+    Pool.submit_task t (async t fut task) ;
     fut
 
+  let rec await fut suspended =
+    match Atomic.get fut with
+    | Returned v ->
+        Job.(run @@ continue suspended v)
+    | Raised (exn, bt) ->
+        Job.(run @@ discontinue suspended exn bt)
+    | Pending suspendeds as state ->
+        if not @@ Atomic.compare_and_set fut state @@ Pending (suspended :: suspendeds) then (
+          Domain.cpu_relax () ;
+          await fut suspended
+        )
+  let await fut _t suspended =
+    await fut suspended
   let await fut =
     match Atomic.get fut with
     | Returned v ->
@@ -162,39 +117,37 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     | Raised (exn, bt) ->
         Printexc.raise_with_backtrace exn bt
     | Pending _ ->
-        Effect.perform @@ Await fut
+        Pool.yield (await fut)
 
+  let yield t suspended =
+    Pool.submit_job t (Job.continue suspended ())
   let yield () =
-    Effect.perform @@ Yield (fun t k ->
-      push_raw t @@ Effect.Deep.continue k
-    )
+    Pool.yield yield
 
-  let rec run t fut =
+  let run t task =
+    let fut = async t task in
+    Pool.wait_until t (fun () ->
+      match Atomic.get fut with
+      | Pending _ ->
+          false
+      | _ ->
+          true
+    ) ;
     match Atomic.get fut with
     | Returned v ->
         v
     | Raised (e, bt) ->
         Printexc.raise_with_backtrace e bt
     | Pending _ ->
-        begin match Ws_hub.pop_try_steal t.hub 0 max_round_noyield max_round_yield with
-        | None ->
-            Domain.cpu_relax ()
-        | Some task ->
-            task ()
-        end ;
-        run t fut
-  let run t task =
-    if Ws_hub.killed t.hub then
-      invalid_arg @@ __FUNCTION__ ^ ": scheduler already killed" ;
-    run t @@ async t task
+        failwith @@ __FUNCTION__ ^ ": impossible: unset future"
 
-  let kill t =
-    Ws_hub.kill t.hub ;
-    Array.iter Domain.join t.domains
+  let kill =
+    Pool.kill
 
   module Vertex = struct
     type t =
-      { mutable task: unit task;
+      { task: unit task;
+        mutable job: Job.t;
         preds: int Atomic.t;
         succs: t Mpmc_stack.t;
       }
@@ -204,6 +157,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
         ignore_exceptions task_ t
       and t =
         { task;
+          job= Job.noop;
           preds= Atomic.make 1;
           succs= Mpmc_stack.create ();
         }
@@ -217,24 +171,25 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
           Atomic.decr t2.preds
       )
 
-    let rec propagate sched t =
+    let propagate sched t =
       let preds = Atomic.fetch_and_add t.preds (-1) in
       if preds <= 0 then
         failwith @@ __FUNCTION__ ^ ": illegal state probably due to multiple vertex releases" ;
-      if preds = 1 then
-        push_raw sched @@ run sched t
-    and run sched t () =
-      Atomic.incr t.preds ;
+      if preds = 1 then (
+        Atomic.incr t.preds ;
+        Pool.submit_job sched t.job
+      )
+
+    let run sched t () =
       t.task () ;
       Clist.iter (Mpmc_stack.close t.succs) (propagate sched)
-
     let release sched t =
-      t.task <- handle sched t.task ;
+      t.job <- Job.make sched (run sched t) ;
       propagate sched t
 
     let yield t =
-      Effect.perform @@ Yield (fun sched k ->
-        t.task <- Effect.Deep.continue k ;
+      Pool.yield (fun sched suspended ->
+        t.job <- Job.continue suspended () ;
         propagate sched t
       )
   end

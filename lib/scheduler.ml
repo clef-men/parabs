@@ -1,3 +1,6 @@
+let ignore_exceptions fn arg =
+  try fn arg with _ -> ()
+
 module type S = sig
   type 'a task =
     unit -> 'a
@@ -126,20 +129,12 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
             None
     }
   let[@inline] push t task =
-    task
-    |> handle t
-    |> push_raw t
+    push_raw t (handle t task)
 
-  let execute task () =
-    match task () with
-    | v ->
-        v
-    | exception _ ->
-        ()
   let silent_async t task =
-    push t (execute task)
+    push t (ignore_exceptions task)
 
-  let execute t fut task () =
+  let async t fut task () =
     let res, task =
       match task () with
       | v ->
@@ -157,7 +152,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
         failwith @@ __FUNCTION__ ^ ": impossible: cannot set future result more than once"
   let async t task =
     let fut = Atomic.make @@ Pending [] in
-    push t (execute t fut task) ;
+    push t (async t fut task) ;
     fut
 
   let await fut =
@@ -206,7 +201,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
 
     let create task_ =
       let rec task () =
-        task_ t
+        ignore_exceptions task_ t
       and t =
         { task;
           preds= Atomic.make 1;

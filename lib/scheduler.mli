@@ -40,6 +40,9 @@ module type S = sig
 
     val release :
       scheduler -> t -> unit
+
+    val yield :
+      t -> unit
   end
 end
 

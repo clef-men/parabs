@@ -40,6 +40,9 @@ module type S = sig
 
     val release :
       scheduler -> t -> unit
+
+    val yield :
+      t -> unit
   end
 end
 
@@ -66,7 +69,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     'a state Atomic.t
 
   type _ Effect.t +=
-    | Yield : unit Effect.t
+    | Yield : (t -> (unit, unit) Effect.Deep.continuation -> unit) -> unit Effect.t
     | Await : 'a future -> 'a Effect.t
 
   let max_round_noyield =
@@ -100,8 +103,6 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
   let[@inline] push_raw t task =
     Ws_hub.push t.hub (Domain.DLS.get t.dls) task
 
-  let handle_yield t k =
-    push_raw t @@ Effect.Deep.continue k
   let rec handle_await fut k =
     match Atomic.get fut with
     | Returned v ->
@@ -117,8 +118,8 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     Effect.Deep.try_with task () { effc =
       fun (type a) (eff : a Effect.t) : ((a, _) Effect.Deep.continuation -> _) Option.t ->
         match eff with
-        | Yield ->
-            Some (handle_yield t)
+        | Yield handle ->
+            Some (handle t)
         | Await fut ->
             Some (handle_await fut)
         | _ ->
@@ -169,7 +170,9 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
         Effect.perform @@ Await fut
 
   let yield () =
-    Effect.perform Yield
+    Effect.perform @@ Yield (fun t k ->
+      push_raw t @@ Effect.Deep.continue k
+    )
 
   let rec run t fut =
     match Atomic.get fut with
@@ -196,7 +199,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
 
   module Vertex = struct
     type t =
-      { task: unit task;
+      { mutable task: unit task;
         preds: int Atomic.t;
         succs: t Mpmc_stack.t;
       }
@@ -214,11 +217,22 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
           Atomic.decr t2.preds
       )
 
-    let rec release sched t =
+    let rec propagate sched t =
       if Atomic.fetch_and_add t.preds (-1) = 1 then
-        silent_async sched @@ fun () -> run sched t
+        push_raw sched @@ fun () -> run sched t
     and run sched t =
+      Atomic.incr t.preds ;
       t.task () ;
-      Clist.iter (Mpmc_stack.close t.succs) (release sched)
+      Clist.iter (Mpmc_stack.close t.succs) (propagate sched)
+
+    let release sched t =
+      t.task <- handle sched t.task ;
+      propagate sched t
+
+    let yield t =
+      Effect.perform @@ Yield (fun sched k ->
+        t.task <- Effect.Deep.continue k ;
+        propagate sched t
+      )
   end
 end

@@ -33,7 +33,7 @@ module type S = sig
     type t
 
     val create :
-      unit task -> t
+      (t -> unit) -> t
 
     val precede :
       t -> t -> unit
@@ -204,11 +204,16 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
         succs: t Mpmc_stack.t;
       }
 
-    let create task =
-      { task;
-        preds= Atomic.make 1;
-        succs= Mpmc_stack.create ();
-      }
+    let create task_ =
+      let rec task () =
+        task_ t
+      and t =
+        { task;
+          preds= Atomic.make 1;
+          succs= Mpmc_stack.create ();
+        }
+      in
+      t
 
     let precede t1 t2 =
       if not @@ Mpmc_stack.is_closed t1.succs then (

@@ -33,7 +33,7 @@ module type S = sig
     type t
 
     val create :
-      unit task -> t
+      (t -> unit) -> t
 
     val precede :
       t -> t -> unit

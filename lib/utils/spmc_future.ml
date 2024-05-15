@@ -11,7 +11,9 @@ let create () =
   }
 
 let set t v =
-  Atomic.set t.result (Some v) ;
+  Mutex.protect t.mutex (fun () ->
+    Atomic.set t.result (Some v)
+  ) ;
   Condition.broadcast t.condition
 
 let try_get t =

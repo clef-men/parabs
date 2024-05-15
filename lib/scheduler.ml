@@ -46,6 +46,9 @@ module type S = sig
 
     val yield :
       t -> unit
+
+    val spawn :
+      scheduler -> t -> unit task -> unit
   end
 end
 
@@ -185,5 +188,10 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
         t.job <- Job.continue suspended () ;
         propagate sched t
       )
+
+    let spawn sched t task =
+      let t' = create () in
+      precede t' t ;
+      release sched t' task
   end
 end

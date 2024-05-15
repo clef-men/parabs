@@ -43,6 +43,9 @@ module type S = sig
 
     val yield :
       t -> unit
+
+    val spawn :
+      scheduler -> t -> unit task -> unit
   end
 end
 

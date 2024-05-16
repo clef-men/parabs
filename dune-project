@@ -1,5 +1,5 @@
 (lang dune 3.0)
-(name parabstr)
+(name parabs)
 
 (generate_opam_files true)
 
@@ -7,7 +7,7 @@
 (maintainers "clement.allain@inria.fr")
 
 (package
-  (name parabstr)
+  (name parabs)
   (synopsis "Parallel abstractions for OCaml5")
   (depends
     (ocaml (>= 5.0.0))

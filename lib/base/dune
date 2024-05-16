@@ -1,4 +1,4 @@
 (library
-  (name parabstr__base)
-  (public_name parabstr.base)
+  (name parabs__base)
+  (public_name parabs.base)
 )

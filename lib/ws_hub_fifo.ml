@@ -33,7 +33,7 @@ let push t _i v =
 let pop t =
   Mpmc_queue.pop t.queue
 
-let try_steal _t _i _max_round_noyield _max_round_yield =
+let try_steal ~max_round_noyield:_ ~max_round_yield:_ _t _i =
   None
 
 let killed t =
@@ -57,7 +57,7 @@ let rec steal t =
     | None ->
         steal t
   )
-let steal t _i _max_round_noyield _max_round_yield =
+let steal ~max_round_noyield:_ ~max_round_yield:_ t _i =
   steal t
 
 let pop t _i =

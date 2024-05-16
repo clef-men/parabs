@@ -51,7 +51,7 @@ module Make (Ws_deques_base : Ws_deques.BASE) : Ws_hub.BASE = struct
     Random_round.reset round ;
     Ws_deques.steal_as t.deques i round
 
-  let rec try_steal t i yield max_round =
+  let rec try_steal ~yield ~max_round t i =
     if max_round <= 0 then
       None
     else
@@ -65,16 +65,16 @@ module Make (Ws_deques_base : Ws_deques.BASE) : Ws_hub.BASE = struct
           | None ->
               if yield then
                 Domain.cpu_relax () ;
-              try_steal t i yield (max_round - 1)
-  let try_steal t i max_round_noyield max_round_yield =
-    match try_steal t i false max_round_noyield with
+              try_steal t i ~yield ~max_round:(max_round - 1)
+  let try_steal ~max_round_noyield ~max_round_yield t i =
+    match try_steal t i ~yield:false ~max_round:max_round_noyield with
     | Some _ as res ->
         res
     | None ->
-        try_steal t i true max_round_yield
+        try_steal t i ~yield:true ~max_round:max_round_yield
 
-  let rec steal t i max_round_noyield max_round_yield =
-    match try_steal t i max_round_noyield max_round_yield with
+  let rec steal ~max_round_noyield ~max_round_yield t i =
+    match try_steal t i ~max_round_noyield ~max_round_yield with
     | Some _ as res ->
         res
     | None ->
@@ -90,7 +90,7 @@ module Make (Ws_deques_base : Ws_deques.BASE) : Ws_hub.BASE = struct
               None
             ) else (
               Waiters.commit_wait waiters waiter ;
-              steal t i max_round_noyield max_round_yield
+              steal t i ~max_round_noyield ~max_round_yield
             )
 
   let kill t =

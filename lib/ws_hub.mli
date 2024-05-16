@@ -14,10 +14,14 @@ module type BASE = sig
     'a t -> int -> 'a option
 
   val try_steal :
-    'a t -> int -> int -> int -> 'a option
+    max_round_noyield:int ->
+    max_round_yield:int ->
+    'a t -> int -> 'a option
 
   val steal :
-    'a t -> int -> int -> int -> 'a option
+    max_round_noyield:int ->
+    max_round_yield:int ->
+    'a t -> int -> 'a option
 
   val killed :
     'a t -> bool
@@ -30,10 +34,14 @@ module type S = sig
   include BASE
 
   val pop_try_steal :
-    'a t -> int -> int -> int -> 'a option
+    max_round_noyield:int ->
+    max_round_yield:int ->
+    'a t -> int -> 'a option
 
   val pop_steal :
-    'a t -> int -> int -> int -> 'a option
+    max_round_noyield:int ->
+    max_round_yield:int ->
+    'a t -> int -> 'a option
 end
 
 module Make (Base : BASE) : S

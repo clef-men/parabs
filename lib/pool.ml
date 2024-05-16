@@ -131,7 +131,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     32
 
   let rec worker hub id =
-    match Ws_hub.pop_steal hub id max_round_noyield max_round_yield with
+    match Ws_hub.pop_steal hub id ~max_round_noyield ~max_round_yield with
     | None ->
         ()
     | Some task ->
@@ -164,7 +164,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
 
   let rec wait_until t cond =
     if not @@ cond () then (
-      begin match Ws_hub.pop_try_steal t.hub 0 max_round_noyield max_round_yield with
+      begin match Ws_hub.pop_try_steal t.hub 0 ~max_round_noyield ~max_round_yield with
       | None ->
           Domain.cpu_relax ()
       | Some job ->

@@ -40,11 +40,12 @@ let killed t =
   t.killed
 
 let rec steal t =
+  let waiters = t.waiters in
+  let waiter = Waiters.prepare_wait waiters in
   if killed t then (
+    Waiters.cancel_wait waiters waiter ;
     None
   ) else (
-    let waiters = t.waiters in
-    let waiter = Waiters.prepare_wait waiters in
     if Mpmc_queue.is_empty t.queue then (
       Waiters.commit_wait waiters waiter
     ) else (

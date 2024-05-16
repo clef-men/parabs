@@ -1,48 +1,52 @@
 module type S = sig
-  type task =
-    unit -> unit
+  type 'a task =
+    unit -> 'a
 
   type t
   type pool =
     t
 
-  module Job : sig
-    type t
-
-    type 'a suspended
-
-    val noop :
-      t
-
-    val make :
-      pool -> task -> t
-
-    val run :
-      t -> unit
-
-    val continue :
-      'a suspended -> 'a -> t
-    val discontinue :
-      'a suspended -> exn -> Printexc.raw_backtrace -> t
-  end
+  type 'a future
 
   val create :
     int -> t
 
-  val submit_job :
-    t -> Job.t -> unit
+  val silent_async :
+    t -> unit task -> unit
 
-  val submit_task :
-    t -> task -> unit
+  val async :
+    t -> 'a task -> 'a future
+
+  val await :
+    'a future -> 'a
 
   val yield :
-    (t -> 'a Job.suspended -> unit) -> 'a
+    unit -> unit
 
-  val wait_until :
-    t -> (unit -> bool) -> unit
+  val run :
+    t -> 'a task -> 'a
 
   val kill :
     t -> unit
+
+  module Vertex : sig
+    type t
+
+    val create :
+      unit -> t
+
+    val precede :
+      t -> t -> unit
+
+    val release :
+      pool -> t -> unit task -> unit
+
+    val yield :
+      t -> unit
+
+    val spawn :
+      pool -> t -> unit task -> unit
+  end
 end
 
 module Make (Ws_hub_base : Ws_hub.BASE) : S

@@ -38,6 +38,8 @@ module type S = sig
   val yield :
     (t -> 'a Job.suspended -> unit) -> 'a
 
+  val wait_while :
+    t -> (unit -> bool) -> unit
   val wait_until :
     t -> (unit -> bool) -> unit
 

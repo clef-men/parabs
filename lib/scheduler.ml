@@ -38,6 +38,8 @@ module type S = sig
   val yield :
     (t -> 'a Job.suspended -> unit) -> 'a
 
+  val wait_while :
+    t -> (unit -> bool) -> unit
   val wait_until :
     t -> (unit -> bool) -> unit
 
@@ -162,20 +164,23 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
   let[@inline] yield handler =
     Effect.perform (Job.Yield handler)
 
-  let rec wait_until t cond =
-    if not @@ cond () then (
+  let rec wait_while t cond =
+    if cond () then (
       begin match Ws_hub.pop_try_steal t.hub 0 ~max_round_noyield ~max_round_yield with
       | None ->
           Domain.cpu_relax ()
       | Some job ->
           Job.run job
       end ;
-      wait_until t cond
+      wait_while t cond
     )
-  let wait_until t cond =
+  let wait_while t cond =
     if Ws_hub.killed t.hub then
       invalid_arg @@ __FUNCTION__ ^ ": scheduler already killed" ;
-    wait_until t cond
+    wait_while t cond
+
+  let wait_until t cond =
+    wait_while t (Fun.negate cond)
 
   let kill t =
     Ws_hub.kill t.hub ;

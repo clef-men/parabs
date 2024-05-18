@@ -5,16 +5,16 @@ module type S =
   Pool_intf.S
 
 module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
-  module Scheduler =
-    Scheduler.Make (Ws_hub_base)
+  module Bpool =
+    Bpool.Make (Ws_hub_base)
   module Job =
-    Scheduler.Job
+    Bpool.Job
 
   type 'a task =
     unit -> 'a
 
   type t =
-    Scheduler.t
+    Bpool.t
   type pool =
     t
 
@@ -26,10 +26,10 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     'a state Atomic.t
 
   let create =
-    Scheduler.create
+    Bpool.create
 
   let silent_async t task =
-    Scheduler.submit_task t (ignore_exceptions task)
+    Bpool.submit_task t (ignore_exceptions task)
 
   let async t fut task () =
     let res, job =
@@ -44,12 +44,12 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     in
     match Atomic.exchange fut res with
     | Pending suspendeds ->
-        List.iter (fun suspended -> Scheduler.submit_job t (job suspended)) suspendeds
+        List.iter (fun suspended -> Bpool.submit_job t (job suspended)) suspendeds
     |  _ ->
         failwith @@ __FUNCTION__ ^ ": impossible: cannot set future result more than once"
   let async t task =
     let fut = Atomic.make (Pending []) in
-    Scheduler.submit_task t (async t fut task) ;
+    Bpool.submit_task t (async t fut task) ;
     fut
 
   let rec await fut suspended =
@@ -72,16 +72,16 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     | Raised (exn, bt) ->
         Printexc.raise_with_backtrace exn bt
     | Pending _ ->
-        Scheduler.yield (await fut)
+        Bpool.yield (await fut)
 
   let yield t suspended =
-    Scheduler.submit_job t (Job.continue suspended ())
+    Bpool.submit_job t (Job.continue suspended ())
   let yield () =
-    Scheduler.yield yield
+    Bpool.yield yield
 
   let run t task =
     let fut = async t task in
-    Scheduler.wait_until t (fun () ->
+    Bpool.wait_until t (fun () ->
       match Atomic.get fut with
       | Pending _ ->
           false
@@ -97,7 +97,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
         failwith @@ __FUNCTION__ ^ ": impossible: unset future"
 
   let kill =
-    Scheduler.kill
+    Bpool.kill
 
   module Vertex = struct
     type t =
@@ -125,7 +125,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
         failwith @@ __FUNCTION__ ^ ": illegal state probably due to multiple vertex releases" ;
       if preds = 1 then (
         Atomic.incr t.preds ;
-        Scheduler.submit_job pool t.job
+        Bpool.submit_job pool t.job
       )
 
     let run pool t task () =
@@ -136,7 +136,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
       propagate pool t
 
     let yield t =
-      Scheduler.yield (fun pool suspended ->
+      Bpool.yield (fun pool suspended ->
         t.job <- Job.continue suspended () ;
         propagate pool t
       )

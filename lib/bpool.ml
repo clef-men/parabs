@@ -1,5 +1,5 @@
 module type S =
-  Scheduler_intf.S
+  Bpool_intf.S
 
 module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
   module Ws_hub =
@@ -13,20 +13,20 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
 
     type 'a suspended
 
-    type scheduler =
+    type pool =
       { dls: int Domain.DLS.key;
         hub: t Ws_hub.t;
         domains: unit Domain.t array;
       }
 
     type _ Effect.t +=
-      | Yield : (scheduler -> 'a suspended -> unit) -> 'a Effect.t
+      | Yield : (pool -> 'a suspended -> unit) -> 'a Effect.t
 
     val noop :
       t
 
     val make :
-      scheduler -> task -> t
+      pool -> task -> t
 
     val run :
       t -> unit
@@ -42,24 +42,24 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     type 'a suspended =
       ('a, unit) Effect.Deep.continuation
 
-    type scheduler =
+    type pool =
       { dls: int Domain.DLS.key;
         hub: t Ws_hub.t;
         domains: unit Domain.t array;
       }
 
     type _ Effect.t +=
-      | Yield : (scheduler -> 'a suspended -> unit) -> 'a Effect.t
+      | Yield : (pool -> 'a suspended -> unit) -> 'a Effect.t
 
     let noop () =
       ()
 
-    let make sched task () =
+    let make pool task () =
       Effect.Deep.try_with task () { effc =
         fun (type a) (eff : a Effect.t) : ((a, _) Effect.Deep.continuation -> _) Option.t ->
           match eff with
           | Yield handler ->
-              Some (handler sched)
+              Some (handler pool)
           | _ ->
               None
       }
@@ -73,12 +73,12 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
       Effect.Deep.discontinue_with_backtrace k exn bt
   end
 
-  type t = Job.scheduler =
+  type t = Job.pool =
     { dls: int Domain.DLS.key;
       hub: Job.t Ws_hub.t;
       domains: unit Domain.t array;
     }
-  type scheduler =
+  type pool =
     t
 
   let max_round_noyield =
@@ -130,7 +130,7 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
     )
   let wait_while t cond =
     if Ws_hub.killed t.hub then
-      invalid_arg @@ __FUNCTION__ ^ ": scheduler already killed" ;
+      invalid_arg @@ __FUNCTION__ ^ ": pool already killed" ;
     wait_while t cond
 
   let wait_until t cond =

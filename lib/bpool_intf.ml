@@ -3,7 +3,7 @@ module type S = sig
     unit -> unit
 
   type t
-  type scheduler =
+  type pool =
     t
 
   module Job : sig
@@ -15,7 +15,7 @@ module type S = sig
       t
 
     val make :
-      scheduler -> task -> t
+      pool -> task -> t
 
     val run :
       t -> unit

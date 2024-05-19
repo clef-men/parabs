@@ -7,7 +7,7 @@ val push :
   'a t -> 'a -> bool
 
 val pop :
-  'a t -> 'a Option2.t
+  'a t -> 'a Optional.t
 
 val is_closed :
   'a t -> bool

@@ -20,12 +20,12 @@ let rec push t v =
 let rec pop t =
   match Atomic.get t with
   | Clist.Closed ->
-      Option2.None2
+      Optional.Anything
   | Open ->
-      Option2.None1
+      Optional.Nothing
   | Cons (v, new_) as old ->
       if Atomic.compare_and_set t old new_ then (
-        Option2.Some2 v
+        Optional.Something v
       ) else (
         Domain.cpu_relax () ;
         pop t

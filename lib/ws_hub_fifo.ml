@@ -30,14 +30,27 @@ let push_foreign t v =
 let push t _i v =
   push_foreign t v
 
-let pop t =
+let pop' t =
   Mpmc_queue.pop t.queue
-
-let try_steal ~max_round_noyield:_ ~max_round_yield:_ _t _i =
-  None
+let pop t _i =
+  pop' t
 
 let killed t =
   t.killed
+
+let rec steal_until t cond =
+  if cond () then (
+    None
+  ) else (
+    Domain.cpu_relax () ;
+    match pop' t with
+    | Some _ as res ->
+        res
+    | None ->
+        steal_until t cond
+  )
+let steal_until ~max_round_noyield:_ t _i cond =
+  steal_until t cond
 
 let rec steal t =
   let waiters = t.waiters in
@@ -51,7 +64,7 @@ let rec steal t =
     ) else (
       Waiters.cancel_wait waiters waiter
     ) ;
-    match pop t with
+    match pop' t with
     | Some _ as res ->
         res
     | None ->
@@ -59,9 +72,6 @@ let rec steal t =
   )
 let steal ~max_round_noyield:_ ~max_round_yield:_ t _i =
   steal t
-
-let pop t _i =
-  pop t
 
 let kill t =
   t.killed <- true ;

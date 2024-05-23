@@ -7,12 +7,12 @@ module type S =
 module Make (Base : BASE) : S = struct
   include Base
 
-  let pop_try_steal ~max_round_noyield ~max_round_yield t i =
+  let pop_steal_until ~max_round_noyield t i cond =
     match pop t i with
     | Some _ as res ->
         res
     | None ->
-        try_steal t i ~max_round_noyield ~max_round_yield
+        steal_until t i cond ~max_round_noyield
 
   let pop_steal ~max_round_noyield ~max_round_yield t i =
     match pop t i with

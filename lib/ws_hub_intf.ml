@@ -13,10 +13,9 @@ module type BASE = sig
   val pop :
     'a t -> int -> 'a option
 
-  val try_steal :
+  val steal_until :
     max_round_noyield:int ->
-    max_round_yield:int ->
-    'a t -> int -> 'a option
+    'a t -> int -> (unit -> bool) -> 'a option
 
   val steal :
     max_round_noyield:int ->
@@ -33,10 +32,9 @@ end
 module type S = sig
   include BASE
 
-  val pop_try_steal :
+  val pop_steal_until :
     max_round_noyield:int ->
-    max_round_yield:int ->
-    'a t -> int -> 'a option
+    'a t -> int -> (unit -> bool) -> 'a option
 
   val pop_steal :
     max_round_noyield:int ->

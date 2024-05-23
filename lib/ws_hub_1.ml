@@ -7,7 +7,6 @@ module Make (Ws_deques_base : Ws_deques.BASE) : Ws_hub.BASE = struct
 
   type 'a t =
     { deques: 'a Ws_deques.t;
-      foreign: 'a Mpmc_queue.t;
       rounds: Random_round.t array;
       waiters: Waiters.t;
       mutable killed: bool;
@@ -15,7 +14,6 @@ module Make (Ws_deques_base : Ws_deques.BASE) : Ws_hub.BASE = struct
 
   let create sz =
     { deques= Ws_deques.create sz;
-      foreign= Mpmc_queue.create ();
       rounds= Array.init sz (fun _ -> Random_round.create @@ Int.max 0 (sz - 1));
       waiters= Waiters.create ();
       killed= false;
@@ -36,15 +34,8 @@ module Make (Ws_deques_base : Ws_deques.BASE) : Ws_hub.BASE = struct
     Ws_deques.push t.deques i v ;
     notify t
 
-  let push_foreign t v =
-    Mpmc_queue.push t.foreign v ;
-    notify t
-
   let pop t i =
     Ws_deques.pop t.deques i
-
-  let pop_foreign t =
-    Mpmc_queue.pop t.foreign
 
   let try_steal_once t i =
     let round = t.rounds.(i) in
@@ -55,37 +46,29 @@ module Make (Ws_deques_base : Ws_deques.BASE) : Ws_hub.BASE = struct
     if max_round <= 0 then
       Optional.Nothing
     else
-      match pop_foreign t with
+      match try_steal_once t i with
       | Some v ->
           Optional.Something v
       | None ->
-          match try_steal_once t i with
-          | Some v ->
-              Optional.Something v
-          | None ->
-              if until () then
-                Optional.Anything
-              else (
-                if yield then
-                  Domain.cpu_relax () ;
-                try_steal t i ~yield ~max_round:(max_round - 1) ~until
-              )
+          if until () then
+            Optional.Anything
+          else (
+            if yield then
+              Domain.cpu_relax () ;
+            try_steal t i ~yield ~max_round:(max_round - 1) ~until
+          )
 
   let rec steal_until t i cond =
-    match pop_foreign t with
+    match try_steal_once t i with
     | Some _ as res ->
         res
     | None ->
-        match try_steal_once t i with
-        | Some _ as res ->
-            res
-        | None ->
-            if cond () then (
-              None
-            ) else (
-              Domain.cpu_relax () ;
-              steal_until t i cond
-            )
+        if cond () then (
+          None
+        ) else (
+          Domain.cpu_relax () ;
+          steal_until t i cond
+        )
   let steal_until ~max_round_noyield t i cond =
     match try_steal t i ~yield:false ~max_round:max_round_noyield ~until:cond with
     | Optional.Something v ->

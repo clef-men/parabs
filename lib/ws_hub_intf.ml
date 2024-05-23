@@ -7,9 +7,6 @@ module type BASE = sig
   val push :
     'a t -> int -> 'a -> unit
 
-  val push_foreign :
-    'a t -> 'a -> unit
-
   val pop :
     'a t -> int -> 'a option
 

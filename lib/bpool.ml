@@ -118,21 +118,21 @@ module Make (Ws_hub_base : Ws_hub.BASE) : S = struct
   let[@inline] yield handler =
     Effect.perform (Job.Yield handler)
 
-  let rec wait_until t cond =
-    if not @@ cond () then
-      match Ws_hub.pop_steal_until t.hub 0 cond ~max_round_noyield with
+  let rec wait_until t pred =
+    if not @@ pred () then
+      match Ws_hub.pop_steal_until t.hub 0 pred ~max_round_noyield with
       | None ->
           ()
       | Some job ->
           Job.run job ;
-          wait_until t cond
-  let wait_until t cond =
+          wait_until t pred
+  let wait_until t pred =
     if Ws_hub.killed t.hub then
       invalid_arg @@ __FUNCTION__ ^ ": pool already killed" ;
-    wait_until t cond
+    wait_until t pred
 
-  let wait_while t cond =
-    wait_until t (Fun.negate cond)
+  let wait_while t pred =
+    wait_until t (Fun.negate pred)
 
   let kill t =
     Ws_hub.kill t.hub ;

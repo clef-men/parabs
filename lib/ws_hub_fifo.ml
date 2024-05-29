@@ -38,8 +38,8 @@ let pop t _i =
 let killed t =
   t.killed
 
-let rec steal_until t cond =
-  if cond () then (
+let rec steal_until t pred =
+  if pred () then (
     None
   ) else (
     Domain.cpu_relax () ;
@@ -47,10 +47,10 @@ let rec steal_until t cond =
     | Some _ as res ->
         res
     | None ->
-        steal_until t cond
+        steal_until t pred
   )
-let steal_until ~max_round_noyield:_ t _i cond =
-  steal_until t cond
+let steal_until ~max_round_noyield:_ t _i pred =
+  steal_until t pred
 
 let rec steal t =
   let waiters = t.waiters in

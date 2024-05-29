@@ -58,25 +58,25 @@ module Make (Ws_deques_base : Ws_deques.BASE) : Ws_hub.BASE = struct
             try_steal t i ~yield ~max_round:(max_round - 1) ~until
           )
 
-  let rec steal_until t i cond =
+  let rec steal_until t i pred =
     match try_steal_once t i with
     | Some _ as res ->
         res
     | None ->
-        if cond () then (
+        if pred () then (
           None
         ) else (
           Domain.cpu_relax () ;
-          steal_until t i cond
+          steal_until t i pred
         )
-  let steal_until ~max_round_noyield t i cond =
-    match try_steal t i ~yield:false ~max_round:max_round_noyield ~until:cond with
+  let steal_until ~max_round_noyield t i pred =
+    match try_steal t i ~yield:false ~max_round:max_round_noyield ~until:pred with
     | Optional.Something v ->
         Some v
     | Anything ->
         None
     | Nothing ->
-        steal_until t i cond
+        steal_until t i pred
 
   let steal_aux ~max_round_noyield ~max_round_yield ~until t i =
     match try_steal t i ~yield:false ~max_round:max_round_noyield ~until with

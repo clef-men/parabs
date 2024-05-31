@@ -23,12 +23,9 @@ let notify t =
 let notify_all t =
   Waiters.notify_many t.waiters (size t)
 
-let push_foreign t v =
+let push t _i v =
   Mpmc_queue.push t.queue v ;
   notify t
-
-let push t _i v =
-  push_foreign t v
 
 let pop' t =
   Mpmc_queue.pop t.queue

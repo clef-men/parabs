@@ -50,7 +50,8 @@ let pop_front t =
   )
 
 let push_back t v =
-  insert t.back_sentinel.prev t.back_sentinel v
+  let back_sentinel = t.back_sentinel in
+  insert back_sentinel.prev back_sentinel v
 
 let pop_back t =
   let back = t.back_sentinel.prev in

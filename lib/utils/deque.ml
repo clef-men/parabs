@@ -1,63 +1,45 @@
-type 'a node =
-  { mutable prev: 'a node;
-    mutable next: 'a node;
-    data: 'a;
-  }
 type 'a t =
-  { front_sentinel: 'a node;
-    back_sentinel: 'a node;
+  { mutable prev: 'a t;
+    mutable next: 'a t;
+    data: 'a;
   }
 
 let create () =
-  let rec front_sentinel =
-    { prev= front_sentinel;
-      next= back_sentinel;
-      data= Obj.magic ();
-    }
-  and back_sentinel =
-    { prev= front_sentinel;
-      next= back_sentinel;
-      data= Obj.magic ();
-    }
-  in
-  { front_sentinel; back_sentinel }
+  let rec t = { prev= t; next= t; data= Obj.magic () } in
+  t
 
-let [@inline] is_empty t =
-  t.front_sentinel.next == t.back_sentinel
+let[@inline] is_empty t =
+  t.next == t
 
-let insert node1 node2 v =
-  let node = { prev= node1; next= node2; data= v } in
-  node1.next <- node ;
-  node2.prev <- node
-
-let remove node =
-  let prev = node.prev in
-  let next = node.next in
-  prev.next <- next ;
-  next.prev <- prev
+let insert prev v next =
+  let node = { prev; next; data= v } in
+  prev.next <- node ;
+  next.prev <- node
 
 let push_front t v =
-  let front_sentinel = t.front_sentinel in
-  insert front_sentinel front_sentinel.next v
-
-let pop_front t =
-  let front = t.front_sentinel.next in
-  if front == t.back_sentinel then (
-    None
-  ) else (
-    remove front ;
-    Some front.data
-  )
+  insert t v t.next
 
 let push_back t v =
-  let back_sentinel = t.back_sentinel in
-  insert back_sentinel.prev back_sentinel v
+  insert t.prev v t
 
-let pop_back t =
-  let back = t.back_sentinel.prev in
-  if back == t.front_sentinel then (
+let pop_front t =
+  if is_empty t then (
     None
   ) else (
-    remove back ;
-    Some back.data
+    let old_front = t.next in
+    let front = old_front.next in
+    front.prev <- t ;
+    t.next <- front ;
+    Some old_front.data
+  )
+
+let pop_back t =
+  if is_empty t then (
+    None
+  ) else (
+    let old_back = t.prev in
+    let back = old_back.prev in
+    t.prev <- back ;
+    back.next <- t ;
+    Some old_back.data
   )

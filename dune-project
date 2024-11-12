@@ -1,10 +1,18 @@
 (lang dune 3.0)
+
 (name parabs)
 
-(generate_opam_files true)
+(generate_opam_files)
 
-(authors "Clément Allain")
-(maintainers "clement.allain@inria.fr")
+(authors
+  "Clément Allain"
+)
+(maintainers
+  "clement.allain@inria.fr"
+)
+
+(source (github clef-men/parabs))
+(license ISC)
 
 (package
   (name parabs)
